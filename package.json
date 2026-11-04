@@ -4,9 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "npx playwright test && npx allure generate ./allure-results --clean",
-    "test:headed": "npx playwright test --headed",
-    "test:ui": "npx playwright test --ui"
+    "bdd:generate": "bddgen",
+    "typecheck": "tsc --noEmit",
+    "test": "bddgen && playwright test",
+    "test:headed": "bddgen && playwright test --headed",
+    "test:ui": "bddgen && playwright test --ui",
+    "report:allure": "allure generate ./allure-results --clean"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +19,8 @@
     "@playwright/test": "^1.64.1",
     "@types/node": "^26.6.6",
     "allure": "^3.22.1",
-    "allure-playwright": "^3.14.0"
+    "allure-playwright": "^3.14.0",
+    "playwright-bdd": "^9.2.1",
+    "typescript": "^5.9.3"
   }
 }

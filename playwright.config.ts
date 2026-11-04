@@ -1,4 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
+import { defineBddConfig } from 'playwright-bdd';
+
+// Los escenarios se generan como tests de Playwright; los flows siguen en los steps.
+const testDir = defineBddConfig({
+  features: 'tests/features/**/*.feature',
+  steps: 'tests/steps/**/*.ts',
+});
 
 /**
  * Read environment variables from file.
@@ -12,7 +19,7 @@ import { defineConfig, devices } from '@playwright/test';
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
-  testDir: './tests/e2e',
+  testDir,
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */

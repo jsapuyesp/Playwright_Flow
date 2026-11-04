@@ -8,4 +8,8 @@ export class CartPage {
       .locator('[data-test="inventory-item-name"]')
       .getByText(productName, { exact: true });
   }
+
+  async checkout(): Promise<void> {
+    await this.page.locator('[data-test="checkout"]').click();
+  }
 }

@@ -1,26 +1,32 @@
 import { Page } from '@playwright/test';
-import { UserCredentials } from '../data/users';
+import { CheckoutCustomer } from '../data/checkout';
 import { CartPage } from '../pages/cart.page';
+import { CheckoutPage } from '../pages/checkout.page';
 import { InventoryPage } from '../pages/inventory.page';
-import { LoginFlow } from './login.flow';
 
 export class PurchaseFlow {
   readonly cartPage: CartPage;
-  private readonly loginFlow: LoginFlow;
+  readonly checkoutPage: CheckoutPage;
   private readonly inventoryPage: InventoryPage;
 
   constructor(page: Page) {
-    this.loginFlow = new LoginFlow(page);
     this.inventoryPage = new InventoryPage(page);
     this.cartPage = new CartPage(page);
+    this.checkoutPage = new CheckoutPage(page);
   }
 
   async addProductToCart(
-    credentials: UserCredentials,
     productName: string,
   ): Promise<void> {
-    await this.loginFlow.login(credentials);
+    // La autenticacion es una precondicion, no se repite por cada producto.
     await this.inventoryPage.addProductToCart(productName);
     await this.inventoryPage.openCart();
+  }
+
+  async completeCheckout(customer: CheckoutCustomer): Promise<void> {
+    await this.cartPage.checkout();
+    await this.checkoutPage.fillCustomer(customer);
+    await this.checkoutPage.continue();
+    await this.checkoutPage.finish();
   }
 }
