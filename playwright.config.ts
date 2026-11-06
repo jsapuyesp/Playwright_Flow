@@ -20,6 +20,7 @@ const testDir = defineBddConfig({
  */
 export default defineConfig({
   testDir,
+  outputDir: 'results/test-results',
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -30,9 +31,10 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: [
-    ['allure-playwright'],
-    ['html'],
-    cucumberReporter('json', { outputFile: 'cucumber-results/cucumber.json' }),
+    ['line'],
+    ['html', { outputFolder: 'results/playwright-report', open: 'never' }],
+    ['junit', { outputFile: 'results/junit-results/results.xml' }],
+    cucumberReporter('json', { outputFile: 'results/cucumber-results/cucumber.json' }),
   ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {

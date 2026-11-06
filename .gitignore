@@ -1,6 +1,7 @@
 
 # Playwright
 node_modules/
+/results/
 /test-results/
 /playwright-report/
 /blob-report/
@@ -10,4 +11,5 @@ node_modules/
 /allure-results/
 /cucumber-results/
 /cucumber-report/
+/junit-results/
 /.features-gen/

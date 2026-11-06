@@ -219,7 +219,7 @@ dependencias de forma intencional, usar `npm install` para actualizarlo.
 | `npm run test:ui` | Genera y abre Playwright UI |
 | `npm run bdd:generate` | Solo genera tests |
 | `npm run typecheck` | Comprueba tipos sin emitir JavaScript |
-| `npm run report:allure` | Genera el reporte desde `allure-results` |
+| `npm run report:playwright` | Abre el reporte HTML de Playwright mediante un servidor local |
 | `npx playwright show-report` | Abre el reporte HTML de Playwright |
 
 Los scripts usan `bddgen && playwright test`: si falla la generacion, no se
@@ -258,16 +258,34 @@ No hay carga automatica de un archivo `.env` configurada.
 ## Reportes y trazas
 
 [playwright.config.ts](playwright.config.ts) configura reporteros de consola,
-HTML, Allure y JSON Cucumber. Todos reciben los resultados de la misma
+HTML de Playwright, JUnit y JSON Cucumber. Todos reciben los resultados de la misma
 ejecucion de Playwright; no es necesario instalar ni ejecutar Cucumber.js.
 
-### Screenshots de fallos y Allure
+Todos los reportes y evidencias de nuevas ejecuciones se guardan en `results`:
+
+```text
+results\
+  playwright-report\        HTML y adjuntos
+  junit-results\results.xml Resultados y referencias a evidencias
+  cucumber-results\cucumber.json
+  test-results\             Screenshots, trazas y contexto de errores
+  cucumber-report\          HTML generado por la extension de Azure
+```
+
+El HTML se genera sin abrir un servidor al terminar las pruebas
+(`open: 'never'`). `npm test` devuelve el control a la terminal, con codigo
+de error si hay fallos. Solo `npm run report:playwright` inicia un servidor
+para consultar el reporte; detenerlo con `Ctrl+C`.
+Las carpetas de ejecuciones antiguas en la raiz no se reubican automaticamente.
+
+### Screenshots de fallos y Playwright HTML
 
 La opcion `screenshot: 'only-on-failure'` captura automaticamente la pagina
-cuando falla una prueba. Playwright guarda el PNG en `test-results` y lo
-adjunta al resultado; `allure-playwright` incluye ese mismo adjunto en Allure,
-sin hooks ni llamadas manuales a `allure.attachment`. Tambien queda disponible
-en el reporte HTML de Playwright. Las pruebas exitosas no generan capturas.
+cuando falla una prueba. Playwright guarda el PNG en `results/test-results` y lo
+adjunta al resultado. El reporte HTML de Playwright incluye ese adjunto sin
+hooks ni cambios en las pruebas. Las pruebas exitosas no generan capturas.
+Abrirlo con `npm run report:playwright` y conservar toda la carpeta
+`results/playwright-report`, incluidos sus datos y adjuntos.
 
 La captura requiere que la prueba haya abierto una pagina y esta siga
 disponible al capturar; un fallo antes de crearla no tendra screenshot.
@@ -278,7 +296,7 @@ despues de un login invalido. Debe fallar y adjuntar la captura:
 
 ```powershell
 npm test -- --grep "@intentional-failure" --retries=0
-npm run report:allure
+npm run report:playwright
 ```
 
 Mientras este escenario exista, `npm test` tambien lo ejecutara y terminara
@@ -288,23 +306,62 @@ con error. Para ejecutar solo los siete casos funcionales:
 npm test -- --grep-invert "@intentional-failure"
 ```
 
-Allure se genera por separado para poder hacerlo incluso si las pruebas
-fallan. Sus resultados pueden incluir ejecuciones anteriores: para un reporte
-de una sola ejecucion, limpiar unicamente los resultados previos de
-`allure-results` antes de correr la suite.
+### JUnit con evidencias para Azure DevOps
 
-```powershell
-npm test
-npm run report:allure
+Cada ejecucion genera `results/junit-results/results.xml`. JUnit no es un reporte
+HTML ni incrusta los PNG: el reportero nativo de Playwright agrega referencias
+`[[ATTACHMENT|ruta]]` en `system-out` para los archivos adjuntos de cada test.
+Azure DevOps Services puede publicarlos mediante `PublishTestResults@2`.
+Azure DevOps Server 2022.1 y versiones anteriores no admiten adjuntos JUnit.
+
+Publicar el XML en el mismo job de las pruebas, antes de mover o eliminar
+`results/test-results`. Las referencias son relativas al directorio del XML.
+`publishRunAttachments: true` permite publicar los adjuntos; comprobarlos
+en la pestana Tests del pipeline. No basta con publicar el XML aislado.
+
+```yaml
+- task: PublishTestResults@2
+  displayName: 'Publish JUnit results and attachments'
+  condition: always()
+  inputs:
+    testResultsFormat: 'JUnit'
+    testResultsFiles: 'results/junit-results/results.xml'
+    searchFolder: '$(System.DefaultWorkingDirectory)'
+    testRunTitle: 'Playwright BDD'
+    publishRunAttachments: true
+    failTaskOnFailedTests: true
+    failTaskOnFailureToPublishResults: true
+    failTaskOnMissingResultsFile: true
+
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish Playwright HTML report'
+  condition: always()
+  inputs:
+    targetPath: '$(System.DefaultWorkingDirectory)/results/playwright-report'
+    artifact: 'playwright-report'
+
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish raw test evidence'
+  condition: always()
+  inputs:
+    targetPath: '$(System.DefaultWorkingDirectory)/results/test-results'
+    artifact: 'test-evidence'
 ```
+
+Agregar estos pasos despues de `npm test`, incluso si termina con error.
+Los artefactos permiten descargar el HTML y las evidencias, pero no crean
+automaticamente una pestana de visualizacion HTML dentro de Azure.
+Si falla la instalacion antes de ejecutar las pruebas, la publicacion
+puede fallar tambien por ausencia de resultados.
 
 ### JSON Cucumber para Azure DevOps
 
-Cada ejecucion escribe `cucumber-results/cucumber.json` con features,
+Cada ejecucion escribe `results/cucumber-results/cucumber.json` con features,
 escenarios, pasos y estados. El archivo se reemplaza en cada ejecucion,
-incluso cuando hay fallos. Las capturas automaticas se verifican en Allure
-y en el reporte HTML de Playwright; no se garantiza que aparezcan en la
-extension Cucumber.
+incluso cuando hay fallos. Cucumber JSON admite imagenes mediante `embeddings`,
+pero la integracion actual no incluyo las capturas automaticas en la
+validacion del fallo intencional. Mantener Cucumber como resumen de escenarios;
+consultar las evidencias en Playwright HTML y los adjuntos JUnit publicados.
 
 Este es el formato que consume la extension
 [Azure Pipelines Cucumber Reporter](https://marketplace.visualstudio.com/items?itemName=MaciejMaciejewski.azure-pipelines-cucumber).
@@ -333,8 +390,8 @@ steps:
   displayName: 'Publish Cucumber report'
   condition: always()
   inputs:
-    jsonDir: '$(System.DefaultWorkingDirectory)/cucumber-results'
-    outputPath: '$(System.DefaultWorkingDirectory)/cucumber-report'
+    jsonDir: '$(System.DefaultWorkingDirectory)/results/cucumber-results'
+    outputPath: '$(System.DefaultWorkingDirectory)/results/cucumber-report'
     name: 'BDD tests'
     title: 'Playwright + BDD'
 ```
@@ -342,14 +399,14 @@ steps:
 `condition: always()` permite publicar aunque las pruebas fallen, sin ocultar
 el fallo del paso `npm test`. Si la ejecucion se interrumpe antes de generar
 el JSON, la publicacion no tendra resultados que procesar.
-`jsonDir` debe apuntar solo a los JSON Cucumber, no a `allure-results` ni a
+`jsonDir` debe apuntar solo a los JSON Cucumber, no a otros resultados ni a
 toda la raiz del proyecto: la extension intenta procesar todos los JSON
 encontrados. Este ejemplo asume que el repositorio esta en el directorio
 de trabajo predeterminado; ajustar las rutas si se ejecuta desde otro.
 
 La extension genera su propio HTML y lo muestra en Azure DevOps; no consume
-el HTML de Playwright ni el de Allure. Conservar tambien `allure-results` y
-`test-results` como artefactos del pipeline si se necesitan para diagnostico.
+el HTML de Playwright. Conservar tambien `results/playwright-report` y `results/test-results`
+como artefactos del pipeline si se necesitan para diagnostico.
 
 ### Trazas
 
