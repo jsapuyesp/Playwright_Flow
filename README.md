@@ -358,10 +358,13 @@ puede fallar tambien por ausencia de resultados.
 
 Cada ejecucion escribe `results/cucumber-results/cucumber.json` con features,
 escenarios, pasos y estados. El archivo se reemplaza en cada ejecucion,
-incluso cuando hay fallos. Cucumber JSON admite imagenes mediante `embeddings`,
-pero la integracion actual no incluyo las capturas automaticas en la
-validacion del fallo intencional. Mantener Cucumber como resumen de escenarios;
-consultar las evidencias en Playwright HTML y los adjuntos JUnit publicados.
+incluso cuando hay fallos. La opcion `skipAttachments: false` del reportero
+Cucumber habilita los adjuntos, omitidos por defecto en JSON. Incluye los PNG
+en base64 mediante `embeddings` con `mime_type: 'image/png'`, sin cambiar las
+pruebas ni tomar capturas duplicadas. Tambien puede incluir otros adjuntos,
+como trazas, por lo que el JSON puede crecer. La extension puede mostrar las
+imagenes sin acceder a archivos locales. Si no hay pagina o captura, no se
+agrega una imagen ficticia. Playwright HTML y JUnit conservan sus adjuntos.
 
 Este es el formato que consume la extension
 [Azure Pipelines Cucumber Reporter](https://marketplace.visualstudio.com/items?itemName=MaciejMaciejewski.azure-pipelines-cucumber).

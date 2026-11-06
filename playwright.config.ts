@@ -34,7 +34,10 @@ export default defineConfig({
     ['line'],
     ['html', { outputFolder: 'results/playwright-report', open: 'never' }],
     ['junit', { outputFile: 'results/junit-results/results.xml' }],
-    cucumberReporter('json', { outputFile: 'results/cucumber-results/cucumber.json' }),
+    cucumberReporter('json', {
+      outputFile: 'results/cucumber-results/cucumber.json',
+      skipAttachments: false,
+    }),
   ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
