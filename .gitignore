@@ -8,4 +8,6 @@ node_modules/
 /playwright/.auth/
 /allure-report/
 /allure-results/
+/cucumber-results/
+/cucumber-report/
 /.features-gen/

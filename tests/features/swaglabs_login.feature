@@ -28,3 +28,13 @@ Feature: Login swaglabs
     Scenario: Login with valid credentials
       Given User is logged in with valid credentials
       Then User can see the products
+
+    @intentional-failure
+    Scenario: Intentional failure to verify screenshot attachments
+      Given User is on the login page
+      When User attempts to login with the following credentials
+        | username      | password       |
+        | standard_user | wrong_password |
+      Then he should be presented with the error message
+        | message                                        |
+        | Intentional mismatch to verify the screenshot |

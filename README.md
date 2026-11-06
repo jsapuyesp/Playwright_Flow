@@ -121,7 +121,8 @@ No contienen selectores ni detalles de Playwright.
 - Las etiquetas permiten identificar y filtrar escenarios.
 
 Los escenarios actuales cubren cuatro logins invalidos, login valido,
-producto en carrito y compra completa: siete casos ejecutables.
+producto en carrito y compra completa: siete casos funcionales, mas un caso
+de fallo intencional para verificar capturas.
 
 ### Steps: traducir y verificar
 
@@ -257,12 +258,100 @@ No hay carga automatica de un archivo `.env` configurada.
 ## Reportes y trazas
 
 [playwright.config.ts](playwright.config.ts) configura reporteros de consola,
-HTML y `allure-playwright`.
+HTML, Allure y JSON Cucumber. Todos reciben los resultados de la misma
+ejecucion de Playwright; no es necesario instalar ni ejecutar Cucumber.js.
+
+### Screenshots de fallos y Allure
+
+La opcion `screenshot: 'only-on-failure'` captura automaticamente la pagina
+cuando falla una prueba. Playwright guarda el PNG en `test-results` y lo
+adjunta al resultado; `allure-playwright` incluye ese mismo adjunto en Allure,
+sin hooks ni llamadas manuales a `allure.attachment`. Tambien queda disponible
+en el reporte HTML de Playwright. Las pruebas exitosas no generan capturas.
+
+La captura requiere que la prueba haya abierto una pagina y esta siga
+disponible al capturar; un fallo antes de crearla no tendra screenshot.
+
+El escenario `Intentional failure to verify screenshot attachments`, marcado
+con `@intentional-failure`, compara deliberadamente un mensaje incorrecto
+despues de un login invalido. Debe fallar y adjuntar la captura:
+
+```powershell
+npm test -- --grep "@intentional-failure" --retries=0
+npm run report:allure
+```
+
+Mientras este escenario exista, `npm test` tambien lo ejecutara y terminara
+con error. Para ejecutar solo los siete casos funcionales:
+
+```powershell
+npm test -- --grep-invert "@intentional-failure"
+```
 
 Allure se genera por separado para poder hacerlo incluso si las pruebas
 fallan. Sus resultados pueden incluir ejecuciones anteriores: para un reporte
 de una sola ejecucion, limpiar unicamente los resultados previos de
 `allure-results` antes de correr la suite.
+
+```powershell
+npm test
+npm run report:allure
+```
+
+### JSON Cucumber para Azure DevOps
+
+Cada ejecucion escribe `cucumber-results/cucumber.json` con features,
+escenarios, pasos y estados. El archivo se reemplaza en cada ejecucion,
+incluso cuando hay fallos. Las capturas automaticas se verifican en Allure
+y en el reporte HTML de Playwright; no se garantiza que aparezcan en la
+extension Cucumber.
+
+Este es el formato que consume la extension
+[Azure Pipelines Cucumber Reporter](https://marketplace.visualstudio.com/items?itemName=MaciejMaciejewski.azure-pipelines-cucumber).
+Instalarla primero en la organizacion de Azure DevOps. En el pipeline, despues
+de instalar Node.js y las dependencias, ejecutar las pruebas y publicar:
+
+```yaml
+steps:
+- task: NodeTool@0
+  inputs:
+    versionSpec: '24.x'
+  displayName: 'Install Node.js'
+
+- script: npm ci
+  displayName: 'Install dependencies'
+
+- script: npx playwright install --with-deps chromium
+  displayName: 'Install Chromium'
+
+- script: npm test
+  displayName: 'Run BDD tests'
+  env:
+    CI: 'true'
+
+- task: PublishCucumberReport@1
+  displayName: 'Publish Cucumber report'
+  condition: always()
+  inputs:
+    jsonDir: '$(System.DefaultWorkingDirectory)/cucumber-results'
+    outputPath: '$(System.DefaultWorkingDirectory)/cucumber-report'
+    name: 'BDD tests'
+    title: 'Playwright + BDD'
+```
+
+`condition: always()` permite publicar aunque las pruebas fallen, sin ocultar
+el fallo del paso `npm test`. Si la ejecucion se interrumpe antes de generar
+el JSON, la publicacion no tendra resultados que procesar.
+`jsonDir` debe apuntar solo a los JSON Cucumber, no a `allure-results` ni a
+toda la raiz del proyecto: la extension intenta procesar todos los JSON
+encontrados. Este ejemplo asume que el repositorio esta en el directorio
+de trabajo predeterminado; ajustar las rutas si se ejecuta desde otro.
+
+La extension genera su propio HTML y lo muestra en Azure DevOps; no consume
+el HTML de Playwright ni el de Allure. Conservar tambien `allure-results` y
+`test-results` como artefactos del pipeline si se necesitan para diagnostico.
+
+### Trazas
 
 La configuracion actual captura trazas en el primer reintento. En local no
 hay reintentos por defecto; en CI hay dos. Para investigar un fallo local:
