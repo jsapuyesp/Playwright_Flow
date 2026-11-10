@@ -1,439 +1,123 @@
-# Modelo de automatizacion: Playwright + BDD + Flows
+# Automatización E2E con Playwright y BDD
 
-Este proyecto automatiza SauceDemo con TypeScript, escenarios Gherkin y
-`playwright-bdd`. Separa el comportamiento esperado de los detalles de
-automatizacion para servir como guia para suites que puedan crecer.
+Proyecto de pruebas end-to-end para [SauceDemo](https://www.saucedemo.com),
+escrito en TypeScript. Las features Gherkin se convierten en tests de
+Playwright con `playwright-bdd`; Playwright Test es el único runner.
 
-## Playwright, BDD y Cucumber
+## Requisitos e instalación
 
-- **BDD** es el enfoque de describir y acordar comportamientos mediante ejemplos.
-- **Gherkin** es el lenguaje de las features: `Given`, `When`, `Then`, escenarios,
-  tablas y ejemplos.
-- **playwright-bdd** conecta las features y sus definiciones de steps con
-  Playwright Test, generando tests ejecutables.
-- **Playwright Test** ejecuta esos tests y administra navegador, contextos,
-  fixtures, paralelismo, reintentos y reporteros.
-- **Cucumber.js** es otro runner para escenarios Gherkin. Este proyecto NO
-  ejecuta `cucumber-js` ni utiliza su `World` y hooks.
-
-Usamos el lenguaje Gherkin y expresiones de steps del ecosistema Cucumber,
-pero conservamos Playwright Test como runner. No son dos runners ejecutandose
-al mismo tiempo.
-
-## Estructura
-
-```text
-tests\
-  features\                  Comportamientos y datos de escenarios
-    swaglabs_login.feature
-    buy_item.feature
-  steps\                     Conexion de frases con codigo y verificaciones
-    login.steps.ts
-    purchase.steps.ts
-  flows\                     Operaciones reutilizables de negocio
-    login.flow.ts
-    purchase.flow.ts
-  pages\                     Selectores y acciones de cada pantalla
-    login.page.ts
-    inventory.page.ts
-    cart.page.ts
-    checkout.page.ts
-  data\                      Datos reutilizables y tipos
-    users.ts
-    checkout.ts
-.features-gen\               Tests generados; fuera de Git
-playwright.config.ts         Configuracion de BDD y Playwright
-tsconfig.json                Comprobacion estricta de tipos
-package.json                 Dependencias y comandos
-```
-
-## Flujo de ejecucion
-
-```text
-Feature -> bddgen -> Test generado -> Step -> Flow -> Page -> Aplicacion
-                                      |
-                                      +-> expect: resultado esperado
-```
-
-1. Una feature declara un escenario y sus pasos en orden.
-2. `bddgen` lee las features y las definiciones de steps configuradas.
-3. Relaciona cada frase con el patron registrado y genera tests en
-   `.features-gen`.
-4. Playwright ejecuta los tests generados.
-5. Cada step recibe la `page` del escenario y llama al flow correspondiente.
-6. El flow coordina acciones mediante Page Objects.
-7. Los steps verifican el resultado con `expect`.
-
-Los tests generados son codigo derivado: no se editan ni se versionan.
-Los scripts de ejecucion regeneran los tests antes de correrlos. En CI tambien
-se generan despues de instalar las dependencias.
-
-### Como se conectan las capas
-
-Este paso de [buy_item.feature](tests/features/buy_item.feature):
-
-```gherkin
-When User adds "Sauce Labs Backpack" to the cart
-```
-
-coincide con la expresion registrada en
-[purchase.steps.ts](tests/steps/purchase.steps.ts):
-
-```ts
-import { createBdd } from 'playwright-bdd';
-import { PurchaseFlow } from '../flows/purchase.flow';
-
-const { When } = createBdd();
-
-When(
-  'User adds {string} to the cart',
-  async ({ page }, productName: string) => {
-    const purchaseFlow = new PurchaseFlow(page);
-    await purchaseFlow.addProductToCart(productName);
-  },
-);
-```
-
-`{string}` recibe el texto entre comillas. No se registra la palabra `When`
-como parte de la expresion. `And` continua el tipo de paso anterior; no hace
-falta una definicion duplicada para esa palabra.
-
-La relacion feature-step depende del texto y sus parametros, no de que los
-archivos tengan el mismo nombre. La relacion step-flow es un import y una
-llamada TypeScript normal.
-
-En [PurchaseFlow](tests/flows/purchase.flow.ts), la operacion agrega el producto
-mediante `InventoryPage` y abre el carrito. No inicia sesion: la autenticacion
-es una precondicion del escenario.
-
-## Responsabilidad de cada capa
-
-### Features: que debe pasar
-
-Describen precondiciones, acciones y resultados en lenguaje de negocio.
-No contienen selectores ni detalles de Playwright.
-
-- `Background` establece pasos comunes antes de cada escenario de su alcance.
-- `Scenario Outline` ejecuta un caso por cada fila de `Examples`.
-- Los placeholders, como `<username>`, se sustituyen antes de ejecutar el step.
-- Las tablas se entregan como `DataTable`; los steps validan su forma antes
-  de utilizar sus datos.
-- Las etiquetas permiten identificar y filtrar escenarios.
-
-Los escenarios actuales cubren cuatro logins invalidos, login valido,
-producto en carrito y compra completa: siete casos funcionales, mas un caso
-de fallo intencional para verificar capturas.
-
-### Steps: traducir y verificar
-
-Registran frases con `createBdd()`, reciben parametros y tablas, instancian los
-flows y verifican los resultados esperados.
-
-No deben duplicar selectores ni contener grandes procesos de negocio.
-Para reutilizar una operacion, llaman al flow, no a otro step.
-
-### Flows: coordinar operaciones
-
-Agrupan acciones con sentido de negocio y pueden utilizar varias paginas.
-Son independientes del texto Gherkin y pueden reutilizarse desde otros tests.
-
-- `LoginFlow`: abrir login, enviar credenciales o realizar ambas acciones.
-- `PurchaseFlow`: agregar un producto y abrir el carrito; completar checkout.
-
-No es obligatorio crear un flow por cada accion. Un step simple tambien puede
-usar directamente una page. Las verificaciones del `Then` pertenecen a los
-steps; un flow puede comprobar condiciones necesarias para garantizar su
-propio contrato.
-
-### Pages: interactuar con la interfaz
-
-Encapsulan selectores y acciones de cada pantalla. Exponen localizadores
-cuando los steps necesitan comprobar el resultado.
-
-Crear `new CartPage(page)` no abre una pantalla: crea un objeto que sabe
-interactuar con la `page` recibida.
-
-### Data: datos y contratos
-
-Contiene datos reutilizables y tipos, como `UserCredentials` y
-`CheckoutCustomer`. Los datos particulares de un escenario tambien pueden
-estar en su feature.
-
-Las credenciales incluidas son datos publicos de la aplicacion de demostracion.
-No guardar secretos reales en features, codigo ni Git.
-
-## Instancias, constructor y readonly
-
-Los flows usan **composicion**, no herencia: un flow tiene Page Objects.
-
-```ts
-readonly cartPage: CartPage;
-
-constructor(page: Page) {
-  this.cartPage = new CartPage(page);
-}
-```
-
-La propiedad declara el tipo; el constructor crea el objeto usando la pagina
-del escenario. `readonly` impide reasignar la referencia desde TypeScript,
-pero permite llamar sus metodos y no congela el navegador.
-
-`private` limita el acceso desde fuera de la clase. Las paginas publicas del
-flow actual permiten a los steps acceder a localizadores para verificaciones.
-
-## Por que no hay una capa support
-
-Los steps usan las fixtures incorporadas de Playwright y crean sus flows
-directamente. No necesitamos fixtures propias, un contenedor global ni hooks
-manuales de navegador.
-
-Dentro de un escenario, los steps reciben la misma `page`. Crear otro flow
-sobre ella no pierde la sesion ni abre otro navegador. Cada escenario tiene
-su propio contexto aislado.
-
-Actualmente los flows no guardan estado de negocio adicional entre steps.
-Si en el futuro se necesita compartir ese estado, debe gestionarse por
-escenario, nunca mediante variables globales.
-
-## Instalacion
-
-Usar una version de Node.js compatible con las dependencias instaladas; este
-modelo se ha ejecutado con Node.js 24.
-
-Desde la raiz del proyecto:
+Instala Node.js compatible con las dependencias del proyecto. Desde la raíz:
 
 ```powershell
 npm ci
 npx playwright install chromium
 ```
 
-`npm ci` instala las versiones registradas en el lockfile. Cuando se cambien
-dependencias de forma intencional, usar `npm install` para actualizarlo.
+## Ejecutar y revisar
 
-## Comandos
-
-| Comando | Funcion |
+| Comando | Resultado |
 | --- | --- |
-| `npm test` | Genera y ejecuta todos los escenarios |
-| `npm run test:headed` | Genera y ejecuta con navegador visible |
-| `npm run test:ui` | Genera y abre Playwright UI |
-| `npm run bdd:generate` | Solo genera tests |
-| `npm run typecheck` | Comprueba tipos sin emitir JavaScript |
-| `npm run report:playwright` | Abre el reporte HTML de Playwright mediante un servidor local |
-| `npx playwright show-report` | Abre el reporte HTML de Playwright |
+| `npm test` | Genera los tests BDD y ejecuta todos los escenarios |
+| `npm run test:headed` | Ejecuta con el navegador visible |
+| `npm run test:ui` | Abre la interfaz de Playwright |
+| `npm run typecheck` | Comprueba los tipos TypeScript |
+| `npm run bdd:generate` | Genera los tests sin ejecutarlos |
+| `npm run report:playwright` | Abre el reporte HTML de la última ejecución |
 
-Los scripts usan `bddgen && playwright test`: si falla la generacion, no se
-ejecutan tests desactualizados. Ese `&&` pertenece al script de npm; en
-Windows PowerShell los comandos manuales se pueden ejecutar por separado.
-
-Para listar escenarios sin ejecutarlos:
-
-```powershell
-npm run bdd:generate
-npx playwright test --list
-```
-
-Para ejecutar un escenario o etiqueta:
+Para filtrar por nombre o etiqueta:
 
 ```powershell
 npm test -- --grep "Buy Item"
-npm test -- --grep "@UserHistory=1234"
+npm test -- --grep "@intentional-failure"
 ```
 
-Si cambias features o definiciones mientras tienes la UI abierta, regenera
-los tests para que reflejen esos cambios.
-
-### URL del entorno
-
-La URL predeterminada es `https://www.saucedemo.com`. En PowerShell:
-
-```powershell
-$env:BASE_URL = 'https://www.saucedemo.com'
-npm test
-Remove-Item Env:\BASE_URL
-```
-
-No hay carga automatica de un archivo `.env` configurada.
-
-## Reportes y trazas
-
-[playwright.config.ts](playwright.config.ts) configura reporteros de consola,
-HTML de Playwright, JUnit y JSON Cucumber. Todos reciben los resultados de la misma
-ejecucion de Playwright; no es necesario instalar ni ejecutar Cucumber.js.
-
-Todos los reportes y evidencias de nuevas ejecuciones se guardan en `results`:
-
-```text
-results\
-  playwright-report\        HTML y adjuntos
-  junit-results\results.xml Resultados y referencias a evidencias
-  cucumber-results\cucumber.json
-  test-results\             Screenshots, trazas y contexto de errores
-  cucumber-report\          HTML generado por la extension de Azure
-```
-
-El HTML se genera sin abrir un servidor al terminar las pruebas
-(`open: 'never'`). `npm test` devuelve el control a la terminal, con codigo
-de error si hay fallos. Solo `npm run report:playwright` inicia un servidor
-para consultar el reporte; detenerlo con `Ctrl+C`.
-Las carpetas de ejecuciones antiguas en la raiz no se reubican automaticamente.
-
-### Screenshots de fallos y Playwright HTML
-
-La opcion `screenshot: 'only-on-failure'` captura automaticamente la pagina
-cuando falla una prueba. Playwright guarda el PNG en `results/test-results` y lo
-adjunta al resultado. El reporte HTML de Playwright incluye ese adjunto sin
-hooks ni cambios en las pruebas. Las pruebas exitosas no generan capturas.
-Abrirlo con `npm run report:playwright` y conservar toda la carpeta
-`results/playwright-report`, incluidos sus datos y adjuntos.
-
-La captura requiere que la prueba haya abierto una pagina y esta siga
-disponible al capturar; un fallo antes de crearla no tendra screenshot.
-
-El escenario `Intentional failure to verify screenshot attachments`, marcado
-con `@intentional-failure`, compara deliberadamente un mensaje incorrecto
-despues de un login invalido. Debe fallar y adjuntar la captura:
-
-```powershell
-npm test -- --grep "@intentional-failure" --retries=0
-npm run report:playwright
-```
-
-Mientras este escenario exista, `npm test` tambien lo ejecutara y terminara
-con error. Para ejecutar solo los siete casos funcionales:
+El escenario `@intentional-failure` comprueba la captura de errores y falla
+intencionalmente. Por eso `npm test` incluye un fallo esperado. Para ejecutar
+solo los escenarios funcionales:
 
 ```powershell
 npm test -- --grep-invert "@intentional-failure"
 ```
 
-### JUnit con evidencias para Azure DevOps
+Los reportes HTML, JUnit y Cucumber, junto con las evidencias, se guardan bajo
+`results\`. El reporte HTML se abre por separado con
+`npm run report:playwright`.
 
-Cada ejecucion genera `results/junit-results/results.xml`. JUnit no es un reporte
-HTML ni incrusta los PNG: el reportero nativo de Playwright agrega referencias
-`[[ATTACHMENT|ruta]]` en `system-out` para los archivos adjuntos de cada test.
-Azure DevOps Services puede publicarlos mediante `PublishTestResults@2`.
-Azure DevOps Server 2022.1 y versiones anteriores no admiten adjuntos JUnit.
+## Configuración
 
-Publicar el XML en el mismo job de las pruebas, antes de mover o eliminar
-`results/test-results`. Las referencias son relativas al directorio del XML.
-`publishRunAttachments: true` permite publicar los adjuntos; comprobarlos
-en la pestana Tests del pipeline. No basta con publicar el XML aislado.
+La configuración está en [playwright.config.ts](playwright.config.ts):
 
-```yaml
-- task: PublishTestResults@2
-  displayName: 'Publish JUnit results and attachments'
-  condition: always()
-  inputs:
-    testResultsFormat: 'JUnit'
-    testResultsFiles: 'results/junit-results/results.xml'
-    searchFolder: '$(System.DefaultWorkingDirectory)'
-    testRunTitle: 'Playwright BDD'
-    publishRunAttachments: true
-    failTaskOnFailedTests: true
-    failTaskOnFailureToPublishResults: true
-    failTaskOnMissingResultsFile: true
+- La URL por defecto es `https://www.saucedemo.com`; se puede cambiar con la
+  variable de entorno `BASE_URL`.
+- Se ejecuta en Chromium.
+- Playwright captura screenshots solo cuando falla una prueba y recoge trazas
+  en el primer reintento.
+- Los reportes configurados son línea de comandos, HTML, JUnit y JSON Cucumber.
+- En CI (`CI` definido) se prohíben tests exclusivos, se usan dos reintentos y
+  un worker.
 
-- task: PublishPipelineArtifact@1
-  displayName: 'Publish Playwright HTML report'
-  condition: always()
-  inputs:
-    targetPath: '$(System.DefaultWorkingDirectory)/results/playwright-report'
-    artifact: 'playwright-report'
-
-- task: PublishPipelineArtifact@1
-  displayName: 'Publish raw test evidence'
-  condition: always()
-  inputs:
-    targetPath: '$(System.DefaultWorkingDirectory)/results/test-results'
-    artifact: 'test-evidence'
-```
-
-Agregar estos pasos despues de `npm test`, incluso si termina con error.
-Los artefactos permiten descargar el HTML y las evidencias, pero no crean
-automaticamente una pestana de visualizacion HTML dentro de Azure.
-Si falla la instalacion antes de ejecutar las pruebas, la publicacion
-puede fallar tambien por ausencia de resultados.
-
-### JSON Cucumber para Azure DevOps
-
-Cada ejecucion escribe `results/cucumber-results/cucumber.json` con features,
-escenarios, pasos y estados. El archivo se reemplaza en cada ejecucion,
-incluso cuando hay fallos. La opcion `skipAttachments: false` del reportero
-Cucumber habilita los adjuntos, omitidos por defecto en JSON. Incluye los PNG
-en base64 mediante `embeddings` con `mime_type: 'image/png'`, sin cambiar las
-pruebas ni tomar capturas duplicadas. Tambien puede incluir otros adjuntos,
-como trazas, por lo que el JSON puede crecer. La extension puede mostrar las
-imagenes sin acceder a archivos locales. Si no hay pagina o captura, no se
-agrega una imagen ficticia. Playwright HTML y JUnit conservan sus adjuntos.
-
-Este es el formato que consume la extension
-[Azure Pipelines Cucumber Reporter](https://marketplace.visualstudio.com/items?itemName=MaciejMaciejewski.azure-pipelines-cucumber).
-Instalarla primero en la organizacion de Azure DevOps. En el pipeline, despues
-de instalar Node.js y las dependencias, ejecutar las pruebas y publicar:
-
-```yaml
-steps:
-- task: NodeTool@0
-  inputs:
-    versionSpec: '24.x'
-  displayName: 'Install Node.js'
-
-- script: npm ci
-  displayName: 'Install dependencies'
-
-- script: npx playwright install --with-deps chromium
-  displayName: 'Install Chromium'
-
-- script: npm test
-  displayName: 'Run BDD tests'
-  env:
-    CI: 'true'
-
-- task: PublishCucumberReport@1
-  displayName: 'Publish Cucumber report'
-  condition: always()
-  inputs:
-    jsonDir: '$(System.DefaultWorkingDirectory)/results/cucumber-results'
-    outputPath: '$(System.DefaultWorkingDirectory)/results/cucumber-report'
-    name: 'BDD tests'
-    title: 'Playwright + BDD'
-```
-
-`condition: always()` permite publicar aunque las pruebas fallen, sin ocultar
-el fallo del paso `npm test`. Si la ejecucion se interrumpe antes de generar
-el JSON, la publicacion no tendra resultados que procesar.
-`jsonDir` debe apuntar solo a los JSON Cucumber, no a otros resultados ni a
-toda la raiz del proyecto: la extension intenta procesar todos los JSON
-encontrados. Este ejemplo asume que el repositorio esta en el directorio
-de trabajo predeterminado; ajustar las rutas si se ejecuta desde otro.
-
-La extension genera su propio HTML y lo muestra en Azure DevOps; no consume
-el HTML de Playwright. Conservar tambien `results/playwright-report` y `results/test-results`
-como artefactos del pipeline si se necesitan para diagnostico.
-
-### Trazas
-
-La configuracion actual captura trazas en el primer reintento. En local no
-hay reintentos por defecto; en CI hay dos. Para investigar un fallo local:
+En PowerShell, para apuntar a otro entorno:
 
 ```powershell
-npm test -- --grep "Buy Item" --trace on
+$env:BASE_URL = 'https://www.saucedemo.com'
+npm test
 ```
 
-No subir a Git tests generados, dependencias, resultados ni reportes.
+No está configurada la carga automática de archivos `.env`.
 
-## Como agregar una nueva automatizacion
+## Estructura y práctica
 
-1. Escribir el comportamiento en una feature, con datos y resultado claros.
-2. Reutilizar steps existentes cuando su significado coincida.
-3. Registrar las frases nuevas en steps usando `createBdd()`.
-4. Reutilizar o ampliar flows para operaciones de negocio.
-5. Agregar selectores y acciones a las pages correspondientes.
-6. Definir tipos o datos reutilizables en data cuando sea necesario.
-7. Ejecutar `npm run typecheck`.
-8. Ejecutar el escenario con `npm test -- --grep "Nombre del escenario"`.
-9. Revisar los reportes y ejecutar los casos afectados.
+```text
+tests/
+  features/   Escenarios y ejemplos Gherkin
+  steps/      Implementación de los pasos y verificaciones
+  flows/      Operaciones de negocio reutilizables
+  pages/      Selectores e interacción con cada pantalla
+  data/       Tipos y datos compartidos
+```
 
-Mantener esta estructura simple mientras sea suficiente. Agrupar por dominio
-cuando el volumen lo requiera, sin agregar clases base ni capas obligatorias
-que solo reenvien llamadas.
+El recorrido es:
+
+```text
+Feature -> step -> flow -> page -> aplicación
+                 step -> expect
+```
+
+- Las **features** describen el comportamiento, sin selectores.
+- Los **steps** conectan las frases Gherkin con el código, llaman flows y
+  verifican los resultados con `expect`.
+- Los **flows** coordinan operaciones, por ejemplo iniciar sesión o completar
+  una compra.
+- Las **pages** encapsulan localizadores y acciones de la interfaz.
+- **data** contiene tipos y datos reutilizables.
+
+Los escenarios actuales cubren inicio de sesión válido e inválido, añadir un
+producto al carrito y completar una compra. El flujo de compra inicia sesión
+en el `Background` de la feature y reutiliza ese estado para sus escenarios.
+
+Por ejemplo, la frase de [buy_item.feature](tests/features/buy_item.feature):
+
+```gherkin
+When User adds "Sauce Labs Backpack" to the cart
+```
+
+se implementa en [purchase.steps.ts](tests/steps/purchase.steps.ts), que llama
+a `PurchaseFlow.addProductToCart()`. El flow coordina
+`InventoryPage`; la verificación del carrito queda en el step `Then`.
+
+## Añadir o modificar un escenario
+
+1. Define el comportamiento y sus datos en `tests/features/`.
+2. Reutiliza un step existente o registra el nuevo en `tests/steps/` con
+   `createBdd()`.
+3. Implementa operaciones reutilizables en `tests/flows/` e interacción de
+   interfaz en `tests/pages/`.
+4. Ejecuta `npm run typecheck` y prueba el escenario:
+
+   ```powershell
+   npm test -- --grep "Nombre del escenario"
+   ```
+
+`npm test` genera los tests en `.features-gen` antes de ejecutarlos. Esa
+carpeta y los resultados de `results\` son artefactos generados; no se editan
+ni se versionan.
